@@ -1,0 +1,44 @@
+# ============================================================
+# Spring Boot 配置文件（YAML 格式）
+# 作用：告诉程序「端口多少、MQ 连哪里、Topic 叫什么」
+# 改这里一般不用改 Java 代码（只要代码里用了 ${...} 引用）
+# ============================================================
+
+# ----- Web 服务 -----
+server:
+  # 本机访问端口。浏览器/curl 用 http://127.0.0.1:8088/...
+  port: 8088
+
+spring:
+  application:
+    # 应用名字，会出现在日志里，方便区分是哪个服务
+    name: rocketmq-springboot-demo
+
+# ----- RocketMQ 客户端（rocketmq-spring-boot-starter 读取） -----
+rocketmq:
+  # NameServer 地址：程序启动后先找它要「Topic 在哪个 Broker」
+  # 格式：IP:端口；多个可用分号隔开
+  name-server: 192.168.103.143:30094
+  producer:
+    # 生产者组名：标识「谁在发」。同一业务常用同一个组名
+    group: demo-producer-group
+    # 发送超时（毫秒）。超时还没应答就当失败
+    send-message-timeout: 3000
+    # 关闭 VIP 通道，部分内网 Broker 更稳
+    vip-channel-enabled: false
+
+# ----- 本演示自定义配置（不是 RocketMQ 固定字段） -----
+# Java 里用 @Value("${demo.topic}")、@RocketMQMessageListener(topic="${demo.topic}") 读取
+demo:
+  # 消息主题（邮箱名）。生产者发到这里，消费者订这个才能收到
+  # 注意：若 Broker 未开自动建 Topic，请先在 Dashboard 手动创建 demo-topic
+  topic: demo-topic
+  # 消费者组。同一组多实例会分摊消息；换一个组名会再收一份（广播式学习时偶尔用到）
+  consumer-group: demo-consumer-group
+
+# ----- 日志：方便看见消费者注册 / RocketMQ 客户端细节 -----
+logging:
+  level:
+    com.example.rocketmqdemo: INFO
+    org.apache.rocketmq.spring: INFO
+    org.apache.rocketmq.client: WARN
