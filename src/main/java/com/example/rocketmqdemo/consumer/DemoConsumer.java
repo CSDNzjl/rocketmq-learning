@@ -6,6 +6,9 @@ import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 /**
@@ -22,7 +25,7 @@ import org.springframework.stereotype.Service;
  * - 正常返回（不抛异常）→ 消费成功，不再重投
  *
  * MessageExt 比 String 多带了元数据，其中 getReconsumeTimes() = 已经重试过几次
- * （第 1 次投递时是 0，失败后再来是 1、2、3…）。
+ * （第 1 次投递时是 0，失败后再来是 1、2、3...）。
  */
 @Service
 @RocketMQMessageListener(
@@ -35,6 +38,17 @@ import org.springframework.stereotype.Service;
 public class DemoConsumer implements RocketMQListener<MessageExt> {
 
     private static final Logger log = LoggerFactory.getLogger(DemoConsumer.class);
+
+    /**
+     * 【新增·路由学习】本消费者"认领"的模块名。
+     * 值来自 application.yml 的 demo.route.my-module（当前默认 smelt）。
+     * 只有消息 JSON 里的 moduleName 与此相同，才会真正处理；否则 SKIP。
+     */
+    @Value("${demo.route.my-module:smelt}")
+    private String myModule;
+
+    /** 解析路由 JSON 用。Spring Boot 已带 Jackson，直接 new 即可（学习阶段够用）。 */
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** 约定前缀：RETRY:次数:内容 */
     public static final String RETRY_PREFIX = "RETRY:";
@@ -55,6 +69,46 @@ public class DemoConsumer implements RocketMQListener<MessageExt> {
                 body, reconsumeTimes, message.getMsgId());
 
         // 不是 RETRY: 开头 → 普通消息，直接成功
+        
+        // =====================================================================
+        // 【新增·路由学习】同 Topic + JSON.moduleName 过滤（对应 fom-daq daqCollect）
+        // 若消息是 {"moduleName":"...","payload":"..."} 这种路由 JSON：
+        //   - moduleName == myModule  → 本模块的消息，打印 ROUTE_PROCESS 后成功返回
+        //   - moduleName != myModule  → 别人的消息，打印 ROUTE_SKIP，【成功返回、不抛异常】
+        //     （跳过 ≠ 失败；抛异常会触发重试，那是错的）
+        // 若不是这种 JSON → 不进本分支，下面原来的普通消息 / RETRY: 逻辑【完全不动】
+        // =====================================================================
+        String trimmed = body == null ? "" : body.trim();
+        if (trimmed.startsWith("{") && trimmed.contains("\"moduleName\"")) {
+            try {
+                JsonNode root = objectMapper.readTree(trimmed);
+                JsonNode moduleNode = root.get("moduleName");
+                if (moduleNode != null && !moduleNode.isNull()) {
+                    String moduleName = moduleNode.asText("");
+                    String payload = root.has("payload") && !root.get("payload").isNull()
+                            ? root.get("payload").asText("")
+                            : "";
+
+                    if (myModule != null && myModule.equals(moduleName)) {
+                        // 命中本模块：这里学习阶段只打日志；真实项目里会调用业务 Service
+                        log.info("ROUTE_PROCESS: 本模块消息 myModule={}, moduleName={}, payload={}, msgId={}",
+                                myModule, moduleName, payload, message.getMsgId());
+                        return; // 成功消费，不重试
+                    } else {
+                        // 不是本模块：跳过。必须 return 且不抛异常！
+                        log.info("ROUTE_SKIP: 非本模块消息 myModule={}, moduleName={}, payload={}, msgId={}",
+                                myModule, moduleName, payload, message.getMsgId());
+                        return; // 成功跳过，Broker 不会再投递
+                    }
+                }
+                // JSON 里没有 moduleName → 当普通消息，落到下面旧逻辑
+                log.debug("JSON 无 moduleName 字段，按旧逻辑处理: {}", trimmed);
+            } catch (Exception parseEx) {
+                // 解析失败 → 不当路由消息，落到下面旧逻辑（兼容误发的 { 开头文本）
+                log.warn("疑似 JSON 但解析失败，按旧逻辑处理: {}, err={}", trimmed, parseEx.getMessage());
+            }
+        }
+
         if (!body.startsWith(RETRY_PREFIX)) {
             log.info("RECEIVED: {}", body);
             return;

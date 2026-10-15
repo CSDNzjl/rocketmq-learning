@@ -1,4 +1,4 @@
-# RocketMQ Spring Boot 最小演示
+﻿# RocketMQ Spring Boot 最小演示
 
 独立 Spring Boot 3.2 + `rocketmq-spring-boot-starter` 示例：启动发一条消息，并提供 HTTP 接口再发；消费者订阅同一 Topic 并打日志。支持「故意失败 N 次再成功」来观察 RocketMQ 消费重试。
 
@@ -109,3 +109,16 @@ src/main/java/com/example/rocketmqdemo/
 本机曾核实：发送成功，但拉取时报 Broker 端  
 `NoClassDefFoundError: Could not initialize class org.apache.rocketmq.store.StoreUtil`。  
 属 Broker 问题，应用侧改代码无法替代修复。Broker 正常后即可看到 `RECEIVED` / 重试日志。
+
+## 下一课：同 Topic 按 moduleName 路由
+
+见 **[LEARNING-路由.md](./LEARNING-路由.md)**。
+
+快速试：
+
+```bat
+curl -X POST "http://127.0.0.1:8088/send-route?moduleName=smelt&msg=hello-route"
+curl -X POST "http://127.0.0.1:8088/send-route?moduleName=furnace&msg=other-module"
+```
+
+日志关键字：ROUTE_PROCESS / ROUTE_SKIP。配置项：demo.route.my-module（默认 smelt）。旧接口 /send、/send-retry 未改动。

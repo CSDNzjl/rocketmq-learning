@@ -16,6 +16,7 @@ import java.util.Map;
  *
  * - POST /send          发普通消息（消费一次成功）
  * - POST /send-retry    发「故意失败 N 次再成功」的消息，用来观察 RocketMQ 重试
+ * - POST /send-route   按 moduleName 路由的 JSON 消息（同 Topic 多模块学习）
  */
 @RestController
 public class SendController {
@@ -86,6 +87,45 @@ public class SendController {
             body.put("msg", msg);
             body.put("mqBody", mqBody);
             body.put("hint", "看控制台：先出现多次「模拟消费失败」，最后出现 RECEIVED(after-retry)。重试有延迟，请多等一会儿。");
+            return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            body.put("success", false);
+            body.put("error", e.getMessage());
+            return ResponseEntity.internalServerError().body(body);
+        }
+    }
+
+
+    /**
+     * 【新增·路由学习】发送带 moduleName 的 JSON 到同一个 demo-topic。
+     *
+     * 调用示例：
+     *   POST http://127.0.0.1:8088/send-route?moduleName=smelt&msg=hello-route
+     *   POST http://127.0.0.1:8088/send-route?moduleName=furnace&msg=other-module
+     *
+     * 实际写入 MQ 的 body 类似：
+     *   {"moduleName":"smelt","payload":"hello-route"}
+     *
+     * 消费者行为（见 DemoConsumer）：
+     *   - moduleName 等于 yml 里 demo.route.my-module（默认 smelt）→ 日志 ROUTE_PROCESS
+     *   - 否则 → 日志 ROUTE_SKIP（成功跳过，不会重试）
+     *
+     * 本接口是新增的，不会改动原来的 /send 和 /send-retry。
+     *
+     * @param moduleName 目标模块名
+     * @param msg        业务内容（放到 JSON 的 payload 字段）
+     */
+    @PostMapping("/send-route")
+    public ResponseEntity<Map<String, Object>> sendRoute(
+            @RequestParam(value = "moduleName", defaultValue = "smelt") String moduleName,
+            @RequestParam(value = "msg", defaultValue = "hello-route") String msg) {
+        Map<String, Object> body = new HashMap<>();
+        try {
+            demoProducer.sendRoute(moduleName, msg);
+            body.put("success", true);
+            body.put("moduleName", moduleName);
+            body.put("msg", msg);
+            body.put("hint", "看控制台：moduleName 与 demo.route.my-module 相同→ROUTE_PROCESS；不同→ROUTE_SKIP");
             return ResponseEntity.ok(body);
         } catch (Exception e) {
             body.put("success", false);

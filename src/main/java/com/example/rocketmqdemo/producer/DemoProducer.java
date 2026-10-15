@@ -74,4 +74,31 @@ public class DemoProducer implements CommandLineRunner {
             log.warn("Startup send failed (check NameServer/Topic): {}", e.getMessage());
         }
     }
+
+    /**
+     * 【新增·路由学习】发送一条带 moduleName 的 JSON 到【同一个 Topic】。
+     *
+     * 为什么要学这个？
+     * fom-daq 里很多模块共用一个 Topic（例如 daqCollect），靠消息体里的 moduleName
+     * 区分"这条是给谁的"。本方法就是把这种写法缩成最小 Demo。
+     *
+     * 发出去的字符串长这样（JSON）：
+     *   {"moduleName":"smelt","payload":"hello-route"}
+     *
+     * 注意：这里【没有改】原来的 send(...) 方法，老接口 /send、/send-retry 完全不动。
+     *
+     * @param moduleName 业务模块名，例如 smelt / furnace；消费者会拿它和配置比对
+     * @param payload    真正的业务内容（学习阶段用普通字符串即可）
+     */
+    public void sendRoute(String moduleName, String payload) {
+        // 学习阶段手动拼 JSON，字段名写死，方便在日志里一眼看懂。
+        // 若 moduleName/payload 里出现双引号或反斜杠，先做简单转义，避免拼出非法 JSON。
+        String safeModule = moduleName == null ? "" : moduleName.replace("\\", "\\\\").replace("\"", "\\\"");
+        String safePayload = payload == null ? "" : payload.replace("\\", "\\\\").replace("\"", "\\\"");
+        String json = "{\"moduleName\":\"" + safeModule + "\",\"payload\":\"" + safePayload + "\"}";
+
+        // 仍然走原来的 syncSend + 同一个 topic，只是 body 换成了 JSON
+        rocketMQTemplate.syncSend(topic, MessageBuilder.withPayload(json).build());
+        log.info("SENT(route) topic=[{}] moduleName={} payload={} json={}", topic, moduleName, payload, json);
+    }
 }

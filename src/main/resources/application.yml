@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Spring Boot 配置文件（YAML 格式）
 # 作用：告诉程序「端口多少、MQ 连哪里、Topic 叫什么」
 # 改这里一般不用改 Java 代码（只要代码里用了 ${...} 引用）
@@ -35,7 +35,11 @@ demo:
   topic: demo-topic
   # 消费者组。同一组多实例会分摊消息；换一个组名会再收一份（广播式学习时偶尔用到）
   consumer-group: demo-consumer-group
-
+  # ----- 同 Topic 按模块路由（学习用，对应 fom-daq 的 daqCollect + moduleName）-----
+  route:
+    # 本进程"认领"的模块名。消息 JSON 里的 moduleName 与此相同才真正处理；否则 SKIP（成功返回，不重试）
+    # 改成其它值（如 furnace）可模拟"另一个模块的消费者"
+    my-module: smelt
 # ----- 日志：方便看见消费者注册 / RocketMQ 客户端细节 -----
 logging:
   level:
