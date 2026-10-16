@@ -2,6 +2,7 @@ package com.example.rocketmqdemo.controller;
 
 import com.example.rocketmqdemo.consumer.DemoConsumer;
 import com.example.rocketmqdemo.producer.DemoProducer;
+import com.example.rocketmqdemo.stream.StreamDemoProducer;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,17 +15,22 @@ import java.util.Map;
 /**
  * HTTP 接口层：用浏览器 / curl 触发发消息。
  *
- * - POST /send          发普通消息（消费一次成功）
- * - POST /send-retry    发「故意失败 N 次再成功」的消息，用来观察 RocketMQ 重试
- * - POST /send-route   按 moduleName 路由的 JSON 消息（同 Topic 多模块学习）
+ * - POST /send          阶段1（直连）；当前直连消费者已关，仅练发送
+ * - POST /send-retry    阶段2（直连重试）；同上，需恢复 DemoConsumer 才能重学
+ * - POST /send-route    阶段3（moduleName 路由）；同上
+ * - POST /send-stream   阶段4【当前启用】StreamBridge → demoCollect-out-0
+ *
+ * 各阶段在消费者侧用注释分隔，见 DemoConsumer / StreamDemoConsumerConfig。
  */
 @RestController
 public class SendController {
 
     private final DemoProducer demoProducer;
+    private final StreamDemoProducer streamDemoProducer;
 
-    public SendController(DemoProducer demoProducer) {
+    public SendController(DemoProducer demoProducer, StreamDemoProducer streamDemoProducer) {
         this.demoProducer = demoProducer;
+        this.streamDemoProducer = streamDemoProducer;
     }
 
     /** 健康检查：GET http://127.0.0.1:8088/health */
@@ -33,11 +39,13 @@ public class SendController {
         Map<String, Object> m = new HashMap<>();
         m.put("ok", true);
         m.put("app", "rocketmq-springboot-demo");
+        m.put("stage", 4);
+        m.put("hint", "当前学 Spring Cloud Stream binding；测 POST /send-stream");
         return m;
     }
 
     /**
-     * 发普通消息。
+     * 阶段1：直连发普通消息。
      * POST http://127.0.0.1:8088/send?msg=hello
      */
     @PostMapping("/send")
@@ -48,6 +56,7 @@ public class SendController {
             demoProducer.send(msg);
             body.put("success", true);
             body.put("msg", msg);
+            body.put("hint", "直连已发送。阶段4下 DemoConsumer 监听已关；重学阶段1请恢复 DemoConsumer。");
             return ResponseEntity.ok(body);
         } catch (Exception e) {
             body.put("success", false);
@@ -57,14 +66,8 @@ public class SendController {
     }
 
     /**
-     * 发一条「学习用」重试消息。
-     *
-     * 例：POST http://127.0.0.1:8088/send-retry?failTimes=3&msg=hello
-     * 实际发到 MQ 的正文：RETRY:3:hello
-     * 消费者会故意失败 3 次，第 4 次才打印 RECEIVED(after-retry)。
-     *
-     * @param failTimes 故意失败几次（建议 1～5；须小于消费者 maxReconsumeTimes=16）
-     * @param msg       成功后日志里展示的真正内容
+     * 阶段2：故意失败重试。
+     * POST http://127.0.0.1:8088/send-retry?failTimes=3&msg=hello
      */
     @PostMapping("/send-retry")
     public ResponseEntity<Map<String, Object>> sendRetry(
@@ -75,10 +78,8 @@ public class SendController {
             failTimes = 0;
         }
         if (failTimes > 15) {
-            // 避免一发就很快进死信，学习时没必要太大
             failTimes = 15;
         }
-        // 拼出消费者约定的格式
         String mqBody = DemoConsumer.RETRY_PREFIX + failTimes + ":" + msg;
         try {
             demoProducer.send(mqBody);
@@ -86,7 +87,7 @@ public class SendController {
             body.put("failTimes", failTimes);
             body.put("msg", msg);
             body.put("mqBody", mqBody);
-            body.put("hint", "看控制台：先出现多次「模拟消费失败」，最后出现 RECEIVED(after-retry)。重试有延迟，请多等一会儿。");
+            body.put("hint", "要重学重试：恢复 DemoConsumer 直连监听与阶段2逻辑后重启。");
             return ResponseEntity.ok(body);
         } catch (Exception e) {
             body.put("success", false);
@@ -95,25 +96,9 @@ public class SendController {
         }
     }
 
-
     /**
-     * 【新增·路由学习】发送带 moduleName 的 JSON 到同一个 demo-topic。
-     *
-     * 调用示例：
-     *   POST http://127.0.0.1:8088/send-route?moduleName=smelt&msg=hello-route
-     *   POST http://127.0.0.1:8088/send-route?moduleName=furnace&msg=other-module
-     *
-     * 实际写入 MQ 的 body 类似：
-     *   {"moduleName":"smelt","payload":"hello-route"}
-     *
-     * 消费者行为（见 DemoConsumer）：
-     *   - moduleName 等于 yml 里 demo.route.my-module（默认 smelt）→ 日志 ROUTE_PROCESS
-     *   - 否则 → 日志 ROUTE_SKIP（成功跳过，不会重试）
-     *
-     * 本接口是新增的，不会改动原来的 /send 和 /send-retry。
-     *
-     * @param moduleName 目标模块名
-     * @param msg        业务内容（放到 JSON 的 payload 字段）
+     * 阶段3：按 moduleName 路由的 JSON。
+     * POST http://127.0.0.1:8088/send-route?moduleName=smelt&msg=hello-route
      */
     @PostMapping("/send-route")
     public ResponseEntity<Map<String, Object>> sendRoute(
@@ -125,8 +110,45 @@ public class SendController {
             body.put("success", true);
             body.put("moduleName", moduleName);
             body.put("msg", msg);
-            body.put("hint", "看控制台：moduleName 与 demo.route.my-module 相同→ROUTE_PROCESS；不同→ROUTE_SKIP");
+            body.put("hint", "要重学路由：恢复 DemoConsumer 直连监听与阶段3逻辑后重启。");
             return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            body.put("success", false);
+            body.put("error", e.getMessage());
+            return ResponseEntity.internalServerError().body(body);
+        }
+    }
+
+    /**
+     * 【阶段4·当前启用】经 Spring Cloud Stream 出站 binding 发消息。
+     *
+     * 调用：
+     *   POST http://127.0.0.1:8088/send-stream?msg=hello-stream
+     *
+     * 链路：
+     *   StreamBridge.send("demoCollect-out-0") 
+     *     → yml destination=demo-topic
+     *     → Consumer Bean demoCollect（binding demoCollect-in-0）打日志 STREAM_RECEIVED
+     *
+     * 对照 fom-daq：send("daqCollect-out-0")；fom-smelt：Consumer daqCollect。
+     */
+    @PostMapping("/send-stream")
+    public ResponseEntity<Map<String, Object>> sendStream(
+            @RequestParam(value = "msg", defaultValue = "hello-stream") String msg) {
+        Map<String, Object> body = new HashMap<>();
+        try {
+            String payload = "STREAM:" + msg;
+            boolean ok = streamDemoProducer.send(payload);
+            body.put("success", ok);
+            body.put("msg", msg);
+            body.put("mqBody", payload);
+            body.put("bindingOut", "demoCollect-out-0");
+            body.put("bindingIn", "demoCollect-in-0");
+            body.put("destination", "demo-topic");
+            body.put("hint", ok
+                    ? "看控制台：STREAM_SENT 然后 STREAM_RECEIVED(via demoCollect-in-0)"
+                    : "StreamBridge 返回 false，检查 NameServer / Topic / binder 配置");
+            return ok ? ResponseEntity.ok(body) : ResponseEntity.internalServerError().body(body);
         } catch (Exception e) {
             body.put("success", false);
             body.put("error", e.getMessage());

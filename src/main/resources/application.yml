@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # Spring Boot 配置文件（YAML 格式）
 # 作用：告诉程序「端口多少、MQ 连哪里、Topic 叫什么」
 # 改这里一般不用改 Java 代码（只要代码里用了 ${...} 引用）
@@ -11,38 +11,65 @@ server:
 
 spring:
   application:
-    # 应用名字，会出现在日志里，方便区分是哪个服务
     name: rocketmq-springboot-demo
 
-# ----- RocketMQ 客户端（rocketmq-spring-boot-starter 读取） -----
+  # ============================================================
+  # 【阶段4】Spring Cloud Stream（对齐 fom-daq 的 daqCollect-out-0 / in-0）
+  # ============================================================
+  # 名词对照（超重要）：
+  #   binding 名 = 应用里的「插头」：demoCollect-out-0 / demoCollect-in-0
+  #   destination = 外面真正的 Topic 名：这里仍用 demo-topic（和阶段1～3同一个）
+  #   group     = 消费组（只有 in 需要）：demo-stream-consumer-group
+  #
+  # 为什么 binding 名不是 Topic？
+  #   代码只认插头名；换 Topic 往往只改 destination，Java 里的 out-0/in-0 可以不变。
+  #   fom-daq：StreamBridge.send("daqCollect-out-0", ...) + destination: daqCollect
+  #   fom-smelt：@Bean Consumer daqCollect() → 自动变成 daqCollect-in-0
+  # ============================================================
+  cloud:
+    # 声明启用哪个函数式消费者 Bean 名（见 StreamDemoConsumerConfig.demoCollect）
+    # 框架会据此创建入站 binding：demoCollect-in-0
+    function:
+      definition: demoCollect
+    stream:
+      bindings:
+        # 出站：应用 → MQ（对应 StreamBridge.send("demoCollect-out-0", ...)）
+        demoCollect-out-0:
+          destination: demo-topic
+          content-type: text/plain
+        # 入站：MQ → 应用（对应 @Bean Consumer<String> demoCollect）
+        demoCollect-in-0:
+          destination: demo-topic
+          content-type: text/plain
+          # 必须用【自己的】消费组；不要和阶段1～3 的 demo-consumer-group 混用
+          # （同组会竞争抢消息；不同组各拿一份，互不影响）
+          group: demo-stream-consumer-group
+      rocketmq:
+        binder:
+          # Stream 走这条 NameServer（可以和下面 rocketmq.name-server 相同）
+          name-server: 192.168.103.143:30094
+
+# ----- RocketMQ 客户端（阶段1～3：rocketmq-spring-boot-starter 读取） -----
 rocketmq:
-  # NameServer 地址：程序启动后先找它要「Topic 在哪个 Broker」
-  # 格式：IP:端口；多个可用分号隔开
   name-server: 192.168.103.143:30094
   producer:
-    # 生产者组名：标识「谁在发」。同一业务常用同一个组名
     group: demo-producer-group
-    # 发送超时（毫秒）。超时还没应答就当失败
     send-message-timeout: 3000
-    # 关闭 VIP 通道，部分内网 Broker 更稳
     vip-channel-enabled: false
 
-# ----- 本演示自定义配置（不是 RocketMQ 固定字段） -----
-# Java 里用 @Value("${demo.topic}")、@RocketMQMessageListener(topic="${demo.topic}") 读取
+# ----- 本演示自定义配置 -----
 demo:
-  # 消息主题（邮箱名）。生产者发到这里，消费者订这个才能收到
-  # 注意：若 Broker 未开自动建 Topic，请先在 Dashboard 手动创建 demo-topic
   topic: demo-topic
-  # 消费者组。同一组多实例会分摊消息；换一个组名会再收一份（广播式学习时偶尔用到）
   consumer-group: demo-consumer-group
-  # ----- 同 Topic 按模块路由（学习用，对应 fom-daq 的 daqCollect + moduleName）-----
   route:
-    # 本进程"认领"的模块名。消息 JSON 里的 moduleName 与此相同才真正处理；否则 SKIP（成功返回，不重试）
-    # 改成其它值（如 furnace）可模拟"另一个模块的消费者"
     my-module: smelt
-# ----- 日志：方便看见消费者注册 / RocketMQ 客户端细节 -----
+  # 阶段4：binding 名（和 yml 里 spring.cloud.stream.bindings 的 key 一致）
+  stream:
+    binding-out: demoCollect-out-0
+
 logging:
   level:
     com.example.rocketmqdemo: INFO
     org.apache.rocketmq.spring: INFO
     org.apache.rocketmq.client: WARN
+    org.springframework.cloud.stream: INFO

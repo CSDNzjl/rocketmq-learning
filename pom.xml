@@ -2,14 +2,13 @@
 <!--
   Maven 项目描述文件（pom.xml）
   小白理解：这里声明「用哪个 Spring Boot、依赖哪些 jar、怎么打包」。
-  你执行 mvn package / spring-boot:run 时，Maven 就按这份清单下载依赖并编译。
+  阶段4 新增：Spring Cloud Stream + RocketMQ Binder（和 fom-daq 一样用 binding 名发/收）。
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <!-- 继承 Spring Boot 官方父工程：统一管理常用依赖版本、默认插件 -->
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
@@ -17,41 +16,69 @@
     <relativePath/>
   </parent>
 
-  <!-- 本项目坐标：组织名 + 项目名 + 版本号 -->
   <groupId>com.example</groupId>
   <artifactId>rocketmq-springboot-demo</artifactId>
   <version>1.0.0</version>
   <description>Minimal Spring Boot RocketMQ producer/consumer demo</description>
 
   <properties>
-    <!-- 编译用的 JDK 版本，需与本机 JAVA_HOME 一致（推荐 D:\jdk = 17） -->
     <java.version>17</java.version>
-    <!-- RocketMQ Spring 起步依赖版本；2.3.x 适配 Spring Boot 3 -->
     <rocketmq-spring.version>2.3.1</rocketmq-spring.version>
+    <!-- Spring Boot 3.2.x 对应 Spring Cloud 2023.0.x -->
+    <spring-cloud.version>2023.0.3</spring-cloud.version>
+    <!-- 与 Cloud 2023.0 配套的 Alibaba（内含 stream-rocketmq binder） -->
+    <spring-cloud-alibaba.version>2023.0.1.2</spring-cloud-alibaba.version>
   </properties>
 
+  <!-- 统一管理 Spring Cloud / Alibaba 版本，避免 binder 和 Boot 打架 -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-dependencies</artifactId>
+        <version>${spring-cloud.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.alibaba.cloud</groupId>
+        <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+        <version>${spring-cloud-alibaba.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
-    <!-- Web：内嵌 Tomcat + 写 @RestController 接口（/health、/send） -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
     <!--
-      RocketMQ 官方 Spring Boot 起步依赖：
-      提供 RocketMQTemplate（发消息）、@RocketMQMessageListener（收消息）
-      并根据 application.yml 里的 rocketmq.* 自动连 NameServer
+      阶段1～3：RocketMQ 官方 Spring 起步依赖（直连 Topic）
+      提供 RocketMQTemplate、@RocketMQMessageListener
     -->
     <dependency>
       <groupId>org.apache.rocketmq</groupId>
       <artifactId>rocketmq-spring-boot-starter</artifactId>
       <version>${rocketmq-spring.version}</version>
     </dependency>
+
+    <!--
+      阶段4：Spring Cloud Stream + RocketMQ Binder（对齐 fom-daq）
+      代码里用 binding 名 demoCollect-out-0 / demoCollect-in-0，
+      真正 Topic 写在 application.yml 的 destination。
+    -->
+    <dependency>
+      <groupId>com.alibaba.cloud</groupId>
+      <artifactId>spring-cloud-starter-stream-rocketmq</artifactId>
+    </dependency>
   </dependencies>
 
   <build>
     <plugins>
-      <!-- 打可执行 jar：java -jar target/xxx.jar 就能启动 -->
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>

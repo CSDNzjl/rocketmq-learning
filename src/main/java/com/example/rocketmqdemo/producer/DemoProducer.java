@@ -13,6 +13,9 @@ import org.springframework.stereotype.Component;
  *
  * 类比：你是寄信人，Topic 是邮箱地址，消息内容是信纸上的字。
  *
+ * 【阶段说明】本类 send / sendRoute 仍给阶段1～3 的 HTTP 接口用（RocketMQTemplate 直连）。
+ * 阶段4 请看 stream.StreamDemoProducer（StreamBridge + demoCollect-out-0），不要改本类方法。
+ *
  * 本类做两件事：
  * 1. 提供 send(...) 方法，给 Controller 或别处调用，随时发一条
  * 2. 实现 CommandLineRunner：Spring Boot 启动完成后，自动再发一条演示消息
@@ -45,9 +48,10 @@ public class DemoProducer implements CommandLineRunner {
     }
 
     /**
-     * 真正发消息的方法（同步发送）。
+     * 真正发消息的方法（同步发送）。【阶段1 / 阶段2 / 阶段3 发送仍用本方法或 sendRoute】
+     * 当前阶段4 下 DemoConsumer 直连监听已关，本方法仍可发，但不会走阶段1～3 学习路径。
      *
-     * @param body 消息正文，本演示用普通字符串即可，例如 "hello"
+     * @param body 消息正文，本演示用普通字符串即可，例如 "hello"；重试学习则为 RETRY:3:hello
      *
      * syncSend = 同步：发出后会等 Broker 应答（成功或失败）再往下走。
      * MessageBuilder.withPayload(body).build() = 把字符串包成一条 Spring 消息。
@@ -61,6 +65,7 @@ public class DemoProducer implements CommandLineRunner {
     /**
      * Spring Boot 启动完成后会自动调用这个 run 方法（因为实现了 CommandLineRunner）。
      * 用途：你一启动就能看到「发了一条、消费者是否收到」，不用先手动调接口。
+     * 阶段4：这条仍走 RocketMQTemplate；Stream 消费组不会自动练到，请再调 /send-stream。
      */
     @Override
     public void run(String... args) {
@@ -76,7 +81,7 @@ public class DemoProducer implements CommandLineRunner {
     }
 
     /**
-     * 【新增·路由学习】发送一条带 moduleName 的 JSON 到【同一个 Topic】。
+     * 【阶段3·路由学习】发送一条带 moduleName 的 JSON 到【同一个 Topic】。
      *
      * 为什么要学这个？
      * fom-daq 里很多模块共用一个 Topic（例如 daqCollect），靠消息体里的 moduleName
