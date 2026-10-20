@@ -1,12 +1,9 @@
 # ============================================================
 # Spring Boot 配置文件（YAML 格式）
-# 作用：告诉程序「端口多少、MQ 连哪里、Topic 叫什么」
-# 改这里一般不用改 Java 代码（只要代码里用了 ${...} 引用）
+# 作用：端口、MQ 地址、Topic、Stream binding、阶段6 Tag 订阅
 # ============================================================
 
-# ----- Web 服务 -----
 server:
-  # 本机访问端口。浏览器/curl 用 http://127.0.0.1:8088/...
   port: 8088
 
 spring:
@@ -14,42 +11,44 @@ spring:
     name: rocketmq-springboot-demo
 
   # ============================================================
-  # 【阶段4】Spring Cloud Stream（对齐 fom-daq 的 daqCollect-out-0 / in-0）
-  # ============================================================
-  # 名词对照（超重要）：
-  #   binding 名 = 应用里的「插头」：demoCollect-out-0 / demoCollect-in-0
-  #   destination = 外面真正的 Topic 名：这里仍用 demo-topic（和阶段1～3同一个）
-  #   group     = 消费组（只有 in 需要）：demo-stream-consumer-group
+  # 【阶段4～6】Spring Cloud Stream（对齐 fom-daq 的 daqCollect-out-0 / in-0）
   #
-  # 为什么 binding 名不是 Topic？
-  #   代码只认插头名；换 Topic 往往只改 destination，Java 里的 out-0/in-0 可以不变。
-  #   fom-daq：StreamBridge.send("daqCollect-out-0", ...) + destination: daqCollect
-  #   fom-smelt：@Bean Consumer daqCollect() → 自动变成 daqCollect-in-0
+  # 名词：
+  #   binding 名 = 应用侧「插头」：demoCollect-out-0 / demoCollect-in-0
+  #   destination = 真正的 Topic：demo-topic
+  #   group       = 消费组（仅 in）：demo-stream-consumer-group
+  #
+  # 阶段5：同一 binding 上 JSON + 业务内按 type 分发 Handler
+  # 阶段6：发送时打 RocketMQ Tag；入站用 subscription 只订部分 Tag
+  #         （Broker 侧提前过滤，未订到的消息根本进不了本应用）
   # ============================================================
   cloud:
-    # 声明启用哪个函数式消费者 Bean 名（见 StreamDemoConsumerConfig.demoCollect）
-    # 框架会据此创建入站 binding：demoCollect-in-0
     function:
       definition: demoCollect
     stream:
       bindings:
-        # 出站：应用 → MQ（对应 StreamBridge.send("demoCollect-out-0", ...)）
         demoCollect-out-0:
           destination: demo-topic
           content-type: text/plain
-        # 入站：MQ → 应用（对应 @Bean Consumer<String> demoCollect）
         demoCollect-in-0:
           destination: demo-topic
           content-type: text/plain
           # 必须用【自己的】消费组；不要和阶段1～3 的 demo-consumer-group 混用
-          # （同组会竞争抢消息；不同组各拿一份，互不影响）
           group: demo-stream-consumer-group
       rocketmq:
         binder:
-          # Stream 走这条 NameServer（可以和下面 rocketmq.name-server 相同）
           name-server: 192.168.103.143:30094
+        # 【阶段6】按 binding 配置消费者订阅表达式（Tag 或 SQL）
+        # subscription 写法：
+        #   TEMP              → 只收 Tag=TEMP
+        #   TEMP||PRESSURE    → 收两类（|| 分隔）
+        #   *                 → 收全部 Tag（等同不过滤）
+        # 下面用 ${demo.stream.subscription-tags}，改 demo 段即可切换，不必改两处
+        bindings:
+          demoCollect-in-0:
+            consumer:
+              subscription: ${demo.stream.subscription-tags}
 
-# ----- RocketMQ 客户端（阶段1～3：rocketmq-spring-boot-starter 读取） -----
 rocketmq:
   name-server: 192.168.103.143:30094
   producer:
@@ -57,15 +56,17 @@ rocketmq:
     send-message-timeout: 3000
     vip-channel-enabled: false
 
-# ----- 本演示自定义配置 -----
 demo:
   topic: demo-topic
   consumer-group: demo-consumer-group
   route:
     my-module: smelt
-  # 阶段4：binding 名（和 yml 里 spring.cloud.stream.bindings 的 key 一致）
   stream:
     binding-out: demoCollect-out-0
+    # 【阶段6】入站只订这些 Tag（默认 TEMP，用来证明 PRESSURE 发得出但收不到）
+    # 想恢复阶段5「全收」：改成 * 后重启
+    # 想两类都收：改成 TEMP||PRESSURE 后重启
+    subscription-tags: TEMP
 
 logging:
   level:
