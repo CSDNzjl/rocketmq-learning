@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Maven 项目描述文件（pom.xml）
-  小白理解：这里声明「用哪个 Spring Boot、依赖哪些 jar、怎么打包」。
-  阶段4 新增：Spring Cloud Stream + RocketMQ Binder（和 fom-daq 一样用 binding 名发/收）。
+  小白对照：声明用哪个版本的 Spring Boot、依赖哪些 jar、怎么打包运行。
+  阶段4 起引入 Spring Cloud Stream + RocketMQ Binder（与 fom-daq 一样用 binding 发送/收）。
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -26,11 +26,13 @@
     <rocketmq-spring.version>2.3.1</rocketmq-spring.version>
     <!-- Spring Boot 3.2.x 对应 Spring Cloud 2023.0.x -->
     <spring-cloud.version>2023.0.3</spring-cloud.version>
-    <!-- 与 Cloud 2023.0 配套的 Alibaba（内含 stream-rocketmq binder） -->
+    <!-- 与 Cloud 2023.0 配套的 Alibaba（含 stream-rocketmq binder） -->
     <spring-cloud-alibaba.version>2023.0.1.2</spring-cloud-alibaba.version>
+    <!-- 阶段 XXL-JOB：执行器核心包版本（公司二次封装 com.kocel，非官方 com.xuxueli） -->
+    <xxl-job.version>5.0.0-RELEASE</xxl-job.version>
   </properties>
 
-  <!-- 统一管理 Spring Cloud / Alibaba 版本，避免 binder 和 Boot 打架 -->
+  <!-- 统一管理 Spring Cloud / Alibaba 版本，避免 binder 与 Boot 冲突 -->
   <dependencyManagement>
     <dependencies>
       <dependency>
@@ -57,7 +59,7 @@
     </dependency>
 
     <!--
-      阶段1～3：RocketMQ 官方 Spring 起步依赖（直连 Topic）
+      阶段1～3：RocketMQ 官方 Spring 起步依赖，直连 Topic。
       提供 RocketMQTemplate、@RocketMQMessageListener
     -->
     <dependency>
@@ -67,13 +69,35 @@
     </dependency>
 
     <!--
-      阶段4：Spring Cloud Stream + RocketMQ Binder（对齐 fom-daq）
+      阶段4：Spring Cloud Stream + RocketMQ Binder（对齐 fom-daq）。
       代码里用 binding 名 demoCollect-out-0 / demoCollect-in-0，
       真正 Topic 写在 application.yml 的 destination。
     -->
     <dependency>
       <groupId>com.alibaba.cloud</groupId>
       <artifactId>spring-cloud-starter-stream-rocketmq</artifactId>
+    </dependency>
+
+    <!--
+      阶段 XXL-JOB：执行器核心依赖（@XxlJob / XxlJobSpringExecutor）
+      对齐线上 Admin / scheduletask：com.kocel:xxl-job-core:5.0.0-RELEASE（公司二次封装）。
+      线上 TriggerParam.jobId / logId 为 String（雪花 ID），官方 2.4.1 的 int 会 NumberFormatException。
+      需能解析公司私服（settings.xml localRepository=D:/ifom_repository）。
+    -->
+    <dependency>
+      <groupId>com.kocel</groupId>
+      <artifactId>xxl-job-core</artifactId>
+      <version>${xxl-job.version}</version>
+    </dependency>
+
+    <!--
+      公司 xxl-job-core 5.0.0 GlueFactory 需要 groovy.lang.GroovyClassLoader。
+      其 pom 声明 org.codehaus.groovy:groovy:3.0.8；此处用 Boot 3.2 对齐的 org.apache.groovy:4.0.21。
+    -->
+    <dependency>
+      <groupId>org.apache.groovy</groupId>
+      <artifactId>groovy</artifactId>
+      <version>4.0.21</version>
     </dependency>
   </dependencies>
 

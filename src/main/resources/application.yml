@@ -74,3 +74,29 @@ logging:
     org.apache.rocketmq.spring: INFO
     org.apache.rocketmq.client: WARN
     org.springframework.cloud.stream: INFO
+
+# ============================================================
+# 【阶段 XXL-JOB】执行器配置（本 Demo 变成可被 Admin 调度的执行器）
+#
+# 小白对照：
+#   admin.addresses  = 调度中心网页地址（浏览器也能打开登录）
+#   accessToken      = 通讯口令，必须和 Admin 里配置的一致，否则注册/回调失败
+#   executor.appname = 执行器名字；Admin「执行器管理」新建时填同一个
+#   executor.port    = 本机监听端口，Admin 回调用；9998（勿用被占用的 9999）
+#   logpath          = 任务运行日志目录（相对项目运行目录）
+#
+# Admin 登录（远程）：http://192.168.103.143:30020/xxl-job-admin/
+#   账号 admin / 密码 123456
+# ============================================================
+xxl:
+  job:
+    accessToken: '432e62f3b488bc861d91b0e274e850cc'
+    admin:
+      addresses: http://192.168.103.143:30020/xxl-job-admin/
+    executor:
+      appname: rocketmq-springboot-demo
+      address: ''
+      ip: ''
+      port: 9998
+      logpath: ./logs/xxl-job
+      logretentiondays: 30
